@@ -102,11 +102,11 @@ describe 'arangodb core functionality:', () ->
       ds.connector.api.should.be.Object
       done()
 
-    it 'should expose a function "version" which callsback with the version of the database', (done) ->
+    it 'should expose a function "version" which callback with the version of the database', (done) ->
       ds.connector.getVersion (err, result) ->
         done err if err
         result.should.exist
-        result.should.have.keys ['server', 'version']
+        result.should.have.keys 'server', 'version'
         result.version.should.match /[0-9]+\.[0-9]+\.[0-9]+/
         done()
 

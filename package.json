@@ -36,7 +36,7 @@
     "rc": "^0.6.0",
     "semicov": "~0.1.1-1",
     "semver": "^4.3.1",
-    "should": "^5.2.0"
+    "should": "^8.4.0"
   },
   "repository": {
     "type": "git",

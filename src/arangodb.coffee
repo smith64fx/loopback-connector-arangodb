@@ -135,6 +135,27 @@ class ArangoDBConnector extends Connector
     return model
 
   ###
+  ###
+  coerceId: (model, id) ->
+    return id if not id?
+    idValue = id;
+    idName = @idName model
+
+    # Type conversion for id
+    idProp = @getPropertyDefinition model, idName
+    if idProp && typeof idProp.type is 'function'
+      if not (idValue instanceof idProp.type)
+        idValue = idProp.type id
+        # Reset to id
+        if idProp.type is Number and isNaN id then idValue = id
+    return idValue;
+
+  ###
+  ###
+  _isSpecialAttribute: (attribute) ->
+    attribute in ['_key', '_id', '_rev', '_from', '_to']
+    
+  ###
     Set value of specific field into data object
     @param data {Object} The data object
     @param field {String} The name of field to set
@@ -150,7 +171,26 @@ class ArangoDBConnector extends Connector
   ###
   _isEdge: (model) ->
     modelClass = @getModelClass model
-    return modelClass.settings and modelClass.settings.arangodb and modelClass.settings.arangodb.edge || false
+    settings = modelClass.settings
+    return settings and settings.arangodb and settings.arangodb.edge || false
+
+  ###
+  Verify if the collection is an vertex collection
+  @param model [String] The model name to lookup
+  @return [Boolean] Return true if collection is vertex false otherwise
+  ###
+  _isVertex: (model) ->
+    modelClass = @getModelClass model
+    settings = modelClass.settings
+    return settings and settings.arangodb and settings.arangodb.vertex || false
+
+  ###
+  ###
+  _getNameOfProperty: (model, p) ->
+    props = @getModelClass(model).properties
+    for key, prop of props
+      if prop[p] then return key else continue
+    return false
 
   ###
     Get if the model has _id field
@@ -158,12 +198,7 @@ class ArangoDBConnector extends Connector
     @return [String|Boolean] Return name of _id or false if model not has _id field
   ###
   _fullIdName: (model) ->
-    props = @getModelClass(model).properties
-    for key, prop of props
-      _id = prop._id
-      if !_id then continue
-      return key
-    return false
+    @_getNameOfProperty model, '_id'
 
   ###
     Get if the model has _from field
@@ -171,12 +206,7 @@ class ArangoDBConnector extends Connector
     @return [String|Boolean] Return name of _from or false if model not has _from field
   ###
   _fromName: (model) ->
-    props = @getModelClass(model).properties
-    for key, prop of props
-      _from = prop._from
-      if !_from then continue
-      return key
-    return false
+    @_getNameOfProperty model, '_from'
 
   ###
     Get if the model has _to field
@@ -184,12 +214,7 @@ class ArangoDBConnector extends Connector
     @return [String|Boolean] Return name of _to or false if model not has _to field
   ###
   _toName: (model) ->
-    props = @getModelClass(model).properties
-    for key, prop of props
-      _to = prop._to
-      if !_to then continue
-      return key
-    return false
+    @_getNameOfProperty model, '_to'
 
   ###
     Access a ArangoDB collection by model name
@@ -198,7 +223,7 @@ class ArangoDBConnector extends Connector
     @return {*}
   ###
   getCollection: (model) ->
-    if !@db then throw new Error('ArangoDB connection is not established')
+    if not @db then throw new Error('ArangoDB connection is not established')
 
     collection = ArangoDBConnector.collection
     if @_isEdge model then collection = ArangoDBConnector.edgeCollection
@@ -294,7 +319,7 @@ class ArangoDBConnector extends Connector
     if !idValue? or typeof idValue is 'undefined'
       delete data[idName]
     else
-      id = @getDefaultIdType()(idValue) if typeof idValue isnt @getDefaultIdType()
+      id = String idValue
       data._key = id
       delete data[idName] if idName isnt '_key'
 
@@ -315,20 +340,15 @@ class ArangoDBConnector extends Connector
       delete data[toName] if toName isnt '_to'
 
     @execute model, 'save', data, (err, result) =>
-      # Change error message to pass junit test
       if err
+        # Change message error for pass junit test
         if err.errorNum is 1210 then err.message = '/duplicate/i'
         return callback(err)
       # Save _key and _id value
-      idValue = result._key
-      fullIdValue = result._id
-      modelClass = @_models[model]
-      idType = modelClass.properties[idName].type
-      if idType is Number
-        num = Number(idValue)
-        idValue = num if !isNaN(num)
+      idValue = @coerceId model, result._key
       delete data._key
       data[idName] = idValue;
+      fullIdValue = result._id
 
       if isEdge
         data[fromName] = result._from if fromName isnt '_from'
@@ -359,6 +379,7 @@ class ArangoDBConnector extends Connector
     delete data[idName]
     fullIdName = @_fullIdName model
     if fullIdName is false then delete data[fullIdName]
+
     isEdge = @_isEdge model
     fromName = null
     toName = null
@@ -483,17 +504,6 @@ class ArangoDBConnector extends Connector
     ###
     for condProp, condValue of where
       do() =>
-        # correct if the conditionProperty falsely references to 'id'
-        if condProp is idName
-          condProp = '_key'
-          if typeof condValue is 'number' then condValue = String(condValue)
-        if condProp is fullIdName
-          condProp = '_id'
-        if condProp is fromName
-          condProp = '_from'
-        if condProp is toName
-          condProp = '_to'
-
         # special treatment for 'and', 'or' and 'nor' operator, since there value is an array of conditions
         if condProp in ['and', 'or', 'nor']
           # 'and', 'or' and 'nor' have multiple conditions so we run buildWhere recursively on their array to
@@ -507,6 +517,17 @@ class ArangoDBConnector extends Connector
             aqlArray.push aql
             aql = null
           return
+
+        # correct if the conditionProperty falsely references to 'id'
+        if condProp is idName
+          condProp = '_key'
+          if typeof condValue is 'number' then condValue = String(condValue)
+        if condProp is fullIdName
+          condProp = '_id'
+        if condProp is fromName
+          condProp = '_from'
+        if condProp is toName
+          condProp = '_to'
 
         #  special case: if condValue is a Object (instead of a string or number) we have a conditionOperator
         if condValue and condValue.constructor.name is 'Object'
@@ -532,8 +553,12 @@ class ArangoDBConnector extends Connector
               aqlArray.push qb.not qb.fn('LIKE') "#{@returnVariable}.#{condProp}", "#{assignNewQueryVariable(condValue)}", options
             # array comparison
             when condOp is 'nin'
+              if @_isSpecialAttribute condProp
+                condValue = (value.toString() for value in condValue)
               aqlArray.push qb.not qb.in "#{@returnVariable}.#{condProp}", "#{assignNewQueryVariable(condValue)}"
             when condOp is 'inq'
+              if @_isSpecialAttribute condProp
+                condValue = (value.toString() for value in condValue)
               aqlArray.push qb.in "#{@returnVariable}.#{condProp}", "#{assignNewQueryVariable(condValue)}"
             # geo comparison (extra object)
             when condOp is 'near'
@@ -576,24 +601,6 @@ class ArangoDBConnector extends Connector
     aql = qb.for(@returnVariable).in('@@collection')
 
     if filter.where
-      if filter.where[idName]
-        id = filter.where[idName];
-        delete filter.where[idName];
-        if typeof id is 'number' then id = String(id)
-        filter.where._key = id;
-      if filter.where[fullIdName]
-        fullId = filter.where[fullIdName];
-        delete filter.where[fullIdName];
-        filter.where._id = fullId;
-      if filter.where[fromName]
-        from = filter.where[fromName];
-        delete filter.where[fromName];
-        filter.where._from = from;
-      if filter.where[toName]
-        to = filter.where[toName];
-        delete filter.where[toName];
-        filter.where._to = to;
-
       where = @_buildWhere(model, filter.where)
       for w in where.aqlArray
         aql = aql.filter(w)
@@ -750,7 +757,7 @@ class ArangoDBConnector extends Connector
   updateAttributes: (model, id, data, options, callback) ->
     debug "updateAttributes for #{model} with id #{id} and data #{JSON.stringify data}" if @debug
 
-    if id is Number then id = String(id)
+    id = String(id)
     idName = @idName(model)
     fullIdName = @_fullIdName model
     if fullIdName then delete data[fullIdName]
@@ -766,8 +773,8 @@ class ArangoDBConnector extends Connector
     @execute model, 'update', id, data, options, (err, result) =>
       if result
         delete result['_rev']
-        @setIdValue(model, result, id);
         if idName isnt '_key' then delete result._key;
+        @setIdValue(model, result, id);
         if fullIdName
           fullIdValue = result._id
           delete result._id

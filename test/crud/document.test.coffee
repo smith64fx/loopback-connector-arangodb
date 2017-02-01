@@ -375,24 +375,24 @@ describe 'crud document:', () ->
           done()
 
   it 'should allow to find by number id using where inq', (done) ->
-
     PostWithNumberId.create {id: 1, title: 'Post1', content: 'Post1 content'}, (err, p1) ->
+      return done err if err
       PostWithNumberId.create {id: 2, title: 'Post2', content: 'Post2 content'}, (err, p2) ->
-        PostWithNumberId.find {where: {id: {inq: [1]}}}, (err, p) ->
-          should.not.exist(err)
-          should.exist(p && p[0])
+        return done err if err
+        filter = {where: {id: {inq: [1]}}}
+        PostWithNumberId.find filter, (err, p) ->
+          return done err if err
           p.length.should.be.equal(1)
           p[0].id.should.be.eql(p1.id)
-        PostWithNumberId.find {where: {id: {inq: [1, 2]}}}, (err, p) ->
-          should.not.exist(err)
-          p.length.should.be.equal(2)
-          p[0].id.should.be.eql(p1.id)
-          p[1].id.should.be.eql(p2.id)
-        PostWithNumberId.find {where: {id: {inq: [0]}}}, (err, p) ->
-          should.not.exist(err)
-          p.length.should.be.equal(0)
-
-          done()
+          PostWithNumberId.find {where: {id: {inq: [1, 2]}}}, (err, p) ->
+            return done err if err
+            p.length.should.be.equal(2)
+            p[0].id.should.be.eql(p1.id)
+            p[1].id.should.be.eql(p2.id)
+            PostWithNumberId.find {where: {id: {inq: [0]}}}, (err, p) ->
+              return done err if err
+              p.length.should.be.equal(0)
+              done()
 
   it 'save should not return arangodb _key and _rev', (done) ->
     Post.create {title: 'Post1', content: 'Post content'}, (err, post) ->
