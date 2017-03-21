@@ -1,7 +1,7 @@
 language: node_js
 
 node_js:
-  - "0.12"
+  - "4"
 
 before_install:
   - curl -s -L https://www.arangodb.com/repositories/travisCI/setup_arangodb_2.8.11.sh -o setup_arangodb.sh
